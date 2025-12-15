@@ -18,4 +18,4 @@ EXPOSE 10000
 # Command to run the application using Gunicorn, a standard WSGI server
 # Render recommends Gunicorn for production Flask apps.
 # app:app refers to the Flask instance named 'app' inside the file 'app.py'
-CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "app:app"] 
+CMD gunicorn --bind 0.0.0.0:$PORT app:app
