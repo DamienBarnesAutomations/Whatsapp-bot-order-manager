@@ -5,11 +5,11 @@ services:
     # Use the local Dockerfile in the current directory
     build: 
       context: ./order_manager_bot
-      dockerfile: Dockerfile
+      dockerfile: DockerFile
     container_name: order_manager_bot
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "5000:8080"
     environment:
       VERIFY_TOKEN: ${VERIFY_TOKEN}
       WHATSAPP_TOKEN: ${WHATSAPP_TOKEN}
