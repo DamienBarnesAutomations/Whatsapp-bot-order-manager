@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  order_manager_bot:
+    # Use the local Dockerfile in the current directory
+    build: 
+      context: ./order_manager_bot
+      dockerfile: Dockerfile
+    container_name: order_manager_bot
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      VERIFY_TOKEN: ${VERIFY_TOKEN}
+      WHATSAPP_TOKEN: ${WHATSAPP_TOKEN}
+      PHONE_NUMBER_ID: ${PHONE_NUMBER_ID}
+      GRAPH_API_URL: ${GRAPH_API_URL}
+     

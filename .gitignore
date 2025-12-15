@@ -1,0 +1,21 @@
+# --- System Files ---
+.DS_Store
+Thumbs.db
+
+# --- Python ---
+__pycache__/
+*.pyc
+venv/
+.pytest_cache/
+
+# --- Docker & Project Secrets ---
+.env               # CRITICAL: DO NOT COMMIT SECRETS
+postgres_data/     # Docker volumes for DB
+n8n_data/          # Docker volumes for n8n settings/workflows
+logs/              # Any local log files
+temp/
+
+# --- n8n UI Specific (Local Workflows) ---
+# If you save workflows as files in the project, ensure they are here 
+# if you only want the workflows to be managed by the n8n DB.
+# If you plan to manage workflows as files, remove the relevant line.
