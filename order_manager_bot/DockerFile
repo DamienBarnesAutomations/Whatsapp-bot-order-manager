@@ -14,9 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Expose the port the app runs on
-EXPOSE 8080
 
 # Command to run the application using Gunicorn, a standard WSGI server
 # Render recommends Gunicorn for production Flask apps.
 # app:app refers to the Flask instance named 'app' inside the file 'app.py'
-CMD ["python", "-m", "gunicorn", "--bind", "0.0.0.0:8080", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:0", "app:app"] 
