@@ -10,3 +10,4 @@ venv/
 
 # --- Docker & Project Secrets ---
 .env
+whats-app-bot-service-account.json
