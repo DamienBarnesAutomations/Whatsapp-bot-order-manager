@@ -7,13 +7,12 @@ from config.cake_config import FLOW_MAP, DISPLAY_KEY_MAP, LAYER_SIZE_CONSTRAINTS
 # Import the validation function
 from validation.validator import validate_input
 
-# Import the Google Services (Sheets) functions
-from services.google_services import save_order_data 
+# NEW IMPORT: Now importing the calendar creation function
+from services.google_services import save_order_data, create_calendar_event 
 
 logging.basicConfig(level=logging.INFO)
 
 # --- STATE STORAGE ---
-# Global dictionary to hold user state: {phone_number: {'step': 'STEP_NAME', 'data': {...}}}
 user_states = {}
 
 # --- CORE FUNCTIONS ---
@@ -28,26 +27,44 @@ def _generate_summary_response(user_id):
         value = final_data.get(data_key)
         
         if value is not None:
-            summary_lines.append(f" *{display_name}:* {value}")
+            summary_lines.append(f"*{display_name}:* {value}")
             
     final_message = "\n".join(summary_lines)
     
     return final_message
 
 def _final_save_and_end(user_id):
-    """Saves the data and generates the final closing message."""
+    """Saves the data, creates the calendar event, and generates the final closing message."""
     final_data = user_states[user_id]['data']
     final_data['user_id'] = user_id 
+    
+    calendar_success = False
 
-    # FINAL SAVE: Call the Google Sheets function
+    # 1. Create Calendar Event (We attempt this first)
+    try:
+        # Pass the full data dictionary; the service function extracts what it needs
+        create_calendar_event(final_data)
+        calendar_success = True
+    except Exception as e:
+        logging.error(f"Failed to create calendar event: {e}")
+        calendar_success = False
+
+    # 2. Save Order Data (Sheets)
     save_order_data(final_data) 
     
+    # 3. Generate closing message
     closing_message = "\n✅ Thank you! Your confirmed order details have been saved, and we will contact you shortly with a quote."
+    
+    if calendar_success:
+        closing_message += "\n📅 A new event has been added to your Google Calendar for the event date."
+    else:
+        closing_message += "\n⚠️ Warning: Failed to automatically create the calendar event. Please check your calendar manually."
     
     # Clear state for next conversation
     user_states[user_id] = {'step': 'COMPLETE', 'data': final_data}
     
     return closing_message
+
 
 def _get_next_step(user_id, incoming_message):
     """Determines the next step based on the current step and the user's input."""
@@ -65,7 +82,6 @@ def _get_next_step(user_id, incoming_message):
         return 'ASK_DATE', FLOW_MAP['START']['question'] + "\n" + FLOW_MAP['ASK_DATE']['question']
         
     # --- VALIDATION CHECK (Now calls the external function) ---
-    # NOTE: user_states must be passed to the validator
     is_valid, feedback = validate_input(user_id, current_step, incoming_message, user_states)
 
     if not is_valid:
@@ -99,13 +115,11 @@ def _get_next_step(user_id, incoming_message):
 
     # Dynamic Question for ASK_SIZE
     if next_step == 'ASK_SIZE':
-        # Safely fetch the chosen layer count
         try:
             chosen_layers = int(user_states[user_id]['data'].get('num_layers'))
         except (ValueError, TypeError):
             return next_step, "Error: Could not determine layers. Please try typing 'Restart'."
 
-        # Get the valid size options for those layers
         size_options = LAYER_SIZE_CONSTRAINTS.get(chosen_layers, [])
         options_text = ", ".join(size_options).replace('quarter sheet', '**quarter sheet**').replace('half sheet', '**half sheet**')
 
@@ -121,6 +135,10 @@ def _get_next_step(user_id, incoming_message):
 
     # Confirmation Step: Generate summary and ask for confirmation
     if next_step == 'ASK_CONFIRMATION':
+        # Temporarily use the summary function to get the text for the description
+        # We need to manually construct the summary for the final message, 
+        # as _generate_summary_response requires user_states access which we avoid here.
+        # Since _generate_summary_response is defined outside, we can use it.
         summary_text = _generate_summary_response(user_id)
         
         user_states[user_id]['step'] = 'ASK_CONFIRMATION'
@@ -139,5 +157,7 @@ def _get_next_step(user_id, incoming_message):
 
 def get_response(user_id, incoming_message):
     """The main entry point for the handler."""
+    # We call _get_next_step here, which calls _final_save_and_end, 
+    # which then calls the calendar service function.
     next_step, response_text = _get_next_step(user_id, incoming_message)
     return response_text

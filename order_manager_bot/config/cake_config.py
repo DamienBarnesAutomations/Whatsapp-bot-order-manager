@@ -26,12 +26,12 @@ VALID_YES_NO = ['yes', 'y', 'no', 'n']
 
 FLOW_MAP = {
     'START': {
-        'question': 'Welcome to the Cake Bot! I can help you place a custom cake order. We will walk through the required details step-by-step.\n\nType **Restart** at any time to begin the conversation over.',
+        'question': 'Welcome to the Precious Place Custom Cake Order Bot! I can help you place a custom cake order. We will walk through the required details step-by-step.\n\nType **Restart** at any time to begin the conversation over.\n',
         'data_key': None,
         'next': 'ASK_DATE', 
     },
     'ASK_DATE': {
-        'question': 'What is the date of the event? (Please reply with DD/MM/YYYY)',
+        'question': 'Let\'s start by telling me the date of the event (Please reply with DD/MM/YYYY)',
         'data_key': 'event_date',
         'next': 'ASK_CUSTOM_PICTURE',
     },
