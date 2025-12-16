@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 import logging
+from services.google_services import save_order_data 
+from datetime import datetime, timedelta # Ensure datetime is imported
 
 logging.basicConfig(level=logging.INFO)
 
@@ -102,6 +104,10 @@ def _get_next_step(user_id, incoming_message):
 def _generate_summary_response(user_id):
     """Generates a final summary message and clears the state."""
     final_data = user_states[user_id]['data']
+    final_data['user_id'] = user_id 
+    save_order_data(final_data) 
+
+
     
     # Clear state for next conversation
     user_states[user_id] = {'step': 'COMPLETE', 'data': final_data}
@@ -116,7 +122,6 @@ def _generate_summary_response(user_id):
         "A team member will review this and confirm the price shortly."
     )
     return response
-
 
 def get_conversation_response(user_id, incoming_message):
     """
