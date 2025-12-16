@@ -3,7 +3,6 @@
 from datetime import datetime, timedelta
 import logging
 import re
-# CORRECTED IMPORT PATH
 from services.google_services import save_order_data 
 
 logging.basicConfig(level=logging.INFO)
@@ -34,13 +33,11 @@ VALID_YES_NO = ['yes', 'y', 'no', 'n']
 
 FLOW_MAP = {
     'START': {
-        # Welcome Message ONLY (for initial response handling)
         'question': 'Welcome to the Cake Bot! I can help you place a custom cake order. We will walk through the required details step-by-step.\n\nType **Restart** at any time to begin the conversation over.',
         'data_key': None,
         'next': 'ASK_DATE', 
     },
     'ASK_DATE': {
-        # First Question
         'question': 'What is the date of the event? (Please reply with DD/MM/YYYY)',
         'data_key': 'event_date',
         'next': 'ASK_CUSTOM_PICTURE',
@@ -49,11 +46,10 @@ FLOW_MAP = {
         'question': 'Do you have a picture of the custom cake you would like? (Yes/No)',
         'data_key': 'has_picture',
         'next_if': {
-            'yes': 'ASK_FLAVOR', # Jumps to next question (skips image upload)
+            'yes': 'ASK_FLAVOR',
             'no': 'ASK_FLAVOR',
         },
     },
-    # ASK_IMAGE_UPLOAD step is omitted until the handling code is ready
     'ASK_FLAVOR': {
         'question': f'What flavor would you like? We offer: {", ".join([f.title() for f in VALID_FLAVORS])}.',
         'data_key': 'cake_flavor',
@@ -65,7 +61,8 @@ FLOW_MAP = {
         'next': 'ASK_SIZE',
     },
     'ASK_SIZE': {
-        'question': 'What size cake? Please enter the size in inches (e.g., **8** or **10**), or type **quarter sheet** or **half sheet**.',
+        # Question is set to empty string here, it is dynamically generated in _get_next_step
+        'question': '', 
         'data_key': 'cake_size',
         'next': 'ASK_TIERS',
     },
@@ -175,6 +172,7 @@ def _validate_input(user_id, current_step, incoming_message):
         if message in valid_sizes_for_layers:
             return True, None
         
+        # NOTE: This error message is for invalid input; the question is dynamic.
         return False, (
             f"The size you entered is not available for {chosen_layers} layers. "
             f"Please choose from these options: {', '.join(valid_sizes_for_layers)}."
@@ -205,14 +203,17 @@ def _generate_summary_response(user_id):
     """Generates a final summary message and returns the text for review."""
     final_data = user_states[user_id]['data']
     
+    # FORMATTING CHANGE 1: Restoring clean line-by-line formatting
     summary_lines = ["\n🎂 **Order Summary** 🎂\n"]
     
+    # Iterate through map to generate lines
     for data_key, display_name in DISPLAY_KEY_MAP.items():
         value = final_data.get(data_key)
         
         if value is not None:
             summary_lines.append(f"*{display_name}:* {value}")
-            
+    
+    # Join all lines and add space before final review line (Change 2)
     final_message = "\n".join(summary_lines)
     
     # Do NOT clear state yet
@@ -221,7 +222,6 @@ def _generate_summary_response(user_id):
 def _final_save_and_end(user_id):
     """Saves the data and generates the final closing message."""
     final_data = user_states[user_id]['data']
-    # CRITICAL FIX: Ensure the user_id is saved into the data dictionary
     final_data['user_id'] = user_id 
 
     # FINAL SAVE: Call the Google Sheets function
@@ -247,7 +247,6 @@ def _get_next_step(user_id, incoming_message):
 
 
     if current_step == 'START':
-        # Handle the initial message: send welcome AND first question, set state to ASK_DATE
         user_states[user_id] = {'step': 'ASK_DATE', 'data': {}}
         return 'ASK_DATE', FLOW_MAP['START']['question'] + "\n" + FLOW_MAP['ASK_DATE']['question']
         
@@ -281,12 +280,38 @@ def _get_next_step(user_id, incoming_message):
             return 'START', "Order canceled. Starting over:\n" + FLOW_MAP['START']['question']
 
 
+    # --- Dynamic Question Generation ---
+
+    # CHANGE 3: Dynamic Question for ASK_SIZE
+    if next_step == 'ASK_SIZE':
+        # Safely fetch the chosen layer count
+        try:
+            chosen_layers = int(user_states[user_id]['data'].get('num_layers'))
+        except (ValueError, TypeError):
+            # This should have been caught in validation, but as a safeguard
+            return next_step, "Error: Could not determine layers. Please try typing 'Restart'."
+
+        # Get the valid size options for those layers
+        size_options = LAYER_SIZE_CONSTRAINTS.get(chosen_layers, [])
+        options_text = ", ".join(size_options).replace('quarter sheet', '**quarter sheet**').replace('half sheet', '**half sheet**')
+
+        dynamic_question = (
+            f"You selected **{chosen_layers} layers**. "
+            f"What size cake would you like? For {chosen_layers} layers, we offer: \n"
+            f"👉 {options_text}.\n\nPlease reply with one of the options (e.g., 10 or quarter sheet)."
+        )
+        
+        user_states[user_id]['step'] = next_step
+        return next_step, dynamic_question
+
+
     # Confirmation Step: Generate summary and ask for confirmation
     if next_step == 'ASK_CONFIRMATION':
         summary_text = _generate_summary_response(user_id)
         
         user_states[user_id]['step'] = 'ASK_CONFIRMATION'
-        return 'ASK_CONFIRMATION', summary_text + "\n" + FLOW_MAP['ASK_CONFIRMATION']['question']
+        # FORMATTING CHANGE 2: Extra newline before the confirmation prompt
+        return 'ASK_CONFIRMATION', summary_text + "\n\n" + FLOW_MAP['ASK_CONFIRMATION']['question']
     
     # Final Save Step: Confirmation was "Yes"
     if next_step == 'SUMMARY':
