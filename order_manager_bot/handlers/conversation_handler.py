@@ -2,9 +2,7 @@
 
 from datetime import datetime, timedelta
 import logging
-import re
-# Import the Sheets saving function. This requires google_sheets_drive.py 
-# to be present and successfully initialized.
+# RENAME: Changing import path to the requested format
 from services.google_services import save_order_data 
 
 logging.basicConfig(level=logging.INFO)
@@ -12,42 +10,32 @@ logging.basicConfig(level=logging.INFO)
 # --- CAKE CONFIGURATION AND RULES ---
 # Defines valid flavors and layer/size constraints.
 CAKE_CONFIG = {
-    # Full list of available flavors
-    "vanilla bean": {},
-    "carrot": {},
-    "lemon": {},
-    "coconut": {},
-    "marble": {},
-    "chocolate": {},
-    "strawberry": {},
-    "cookies and cream": {},
-    "red velvet": {},
-    "banana bread": {},
-    "caribbean fruit/ rum": {},
-    "butter pecan": {},
-    "white chocolate sponge": {},
-    "pineapple sponge": {},
+    # Full list of available flavors (kept for list check)
+    "vanilla bean": {}, "carrot": {}, "lemon": {}, "coconut": {},
+    "marble": {}, "chocolate": {}, "strawberry": {}, "cookies and cream": {},
+    "red velvet": {}, "banana bread": {}, "caribbean fruit/ rum": {}, 
+    "butter pecan": {}, "white chocolate sponge": {}, "pineapple sponge": {},
 }
 
 # Defines which sizes are available for a given number of layers.
-# Note: Sizes are listed with their layer count to make selection explicit for the user.
+# Sizes are now simplified to just the inch number or the sheet type.
 LAYER_SIZE_CONSTRAINTS = {
-    1: ['6-inch 1 layer', '8-inch 1 layer', '9-inch 1 layer', '10-inch 1 layer', '12-inch 1 layer', 'quarter sheet 1 layer', 'half sheet 1 layer'],
-    2: ['6-inch 2 layers', '8-inch 2 layers', '9-inch 2 layers', '10-inch 2 layers', '12-inch 2 layers', 'quarter sheet 2 layers', 'half sheet 2 layers'],
-    3: ['6-inch 3 layers', '8-inch 3 layers'],
+    1: ['6', '8', '9', '10', '12', 'quarter sheet', 'half sheet'],
+    2: ['6', '8', '9', '10', '12', 'quarter sheet', 'half sheet'],
+    3: ['6', '8'],
 }
 VALID_LAYERS = list(LAYER_SIZE_CONSTRAINTS.keys())
 
 # Lists derived from config for simpler validation checks
 VALID_FLAVORS = list(CAKE_CONFIG.keys()) 
-VALID_SIZES = sorted(list(size for sizes in LAYER_SIZE_CONSTRAINTS.values() for size in sizes))
 VALID_YES_NO = ['yes', 'y', 'no', 'n']
 
 # --- FLOW AND STATE MAPS ---
 
 FLOW_MAP = {
     'START': {
-        'question': 'Welcome to the Cake Bot! I can help you place an order. What is the date of the event? (Please reply with DD/MM/YYYY)',
+        # CHANGE 1: New Welcome Message & Restart Info
+        'question': 'Welcome to the Cake Bot! I can help you place a custom cake order. We will walk through the required details step-by-step.\n\nType **Restart** at any time to begin the conversation over.\n\nWhat is the date of the event? (Please reply with DD/MM/YYYY)',
         'data_key': None,
         'next': 'ASK_DATE',
     },
@@ -60,12 +48,10 @@ FLOW_MAP = {
         'question': 'Do you have a picture of the custom cake you would like? (Yes/No)',
         'data_key': 'has_picture',
         'next_if': {
-            # Skipping image upload step for now, but recording the answer
             'yes': 'ASK_FLAVOR',
             'no': 'ASK_FLAVOR',
         },
     },
-    # Image upload step skipped until Google Drive API is implemented.
     'ASK_FLAVOR': {
         'question': f'What flavor would you like? We offer: {", ".join([f.title() for f in VALID_FLAVORS])}.',
         'data_key': 'cake_flavor',
@@ -77,7 +63,8 @@ FLOW_MAP = {
         'next': 'ASK_SIZE',
     },
     'ASK_SIZE': {
-        'question': 'What size cake would you like? Please reply with one of the available options based on your layer choice (e.g., 8-inch 2 layers, quarter sheet 1 layer).',
+        # Simplified size input: only expects number (6, 8, etc.) or sheet type (quarter sheet, half sheet)
+        'question': 'What size cake? Please enter the size in inches (e.g., **8** or **10**), or type **quarter sheet** or **half sheet**.',
         'data_key': 'cake_size',
         'next': 'ASK_TIERS',
     },
@@ -104,7 +91,15 @@ FLOW_MAP = {
     'ASK_AC': {
         'question': 'Does the venue have air conditioning? (Critical for stability - Yes/No)',
         'data_key': 'venue_ac',
-        'next': 'SUMMARY',
+        'next': 'ASK_CONFIRMATION', # CHANGE 2: New step before SUMMARY
+    },
+    'ASK_CONFIRMATION': {
+        'question': 'Please review the summary above. Is this information correct and ready to save? (Yes/No)',
+        'data_key': None,
+        'next_if': {
+            'yes': 'SUMMARY',
+            'no': 'START', # If No, start over
+        },
     },
 }
 
@@ -136,6 +131,7 @@ def _validate_input(user_id, current_step, incoming_message):
     
     # --- Date Validation (Specific Format and Future Check) ---
     if current_step == 'ASK_DATE':
+        # ... (date validation logic remains the same) ...
         try:
             event_date = datetime.strptime(incoming_message, '%d/%m/%Y')
             if event_date < datetime.now() - timedelta(hours=24): 
@@ -145,7 +141,7 @@ def _validate_input(user_id, current_step, incoming_message):
             return False, "I couldn't understand that date format. Please reply with **DD/MM/YYYY** (e.g., 25/12/2026)."
 
     # --- Binary Validation (Yes/No) ---
-    if current_step in ['ASK_CUSTOM_PICTURE', 'ASK_INDOORS', 'ASK_AC']:
+    if current_step in ['ASK_CUSTOM_PICTURE', 'ASK_INDOORS', 'ASK_AC', 'ASK_CONFIRMATION']:
         if message in VALID_YES_NO:
             return True, None
         return False, "Please reply with a simple **Yes** or **No**."
@@ -166,24 +162,21 @@ def _validate_input(user_id, current_step, incoming_message):
         except ValueError:
             return False, "Please enter a valid number for layers (e.g., 2)."
 
-    # --- Combined Validation: SIZE (Must match previously selected layers) ---
+    # --- Combined Validation: SIZE (Simplified Input) ---
     if current_step == 'ASK_SIZE':
-        # 1. Fetch the previously chosen number of layers
         user_data = user_states.get(user_id, {}).get('data', {})
         try:
             chosen_layers = int(user_data.get('num_layers'))
         except (ValueError, TypeError):
-            # Should not happen if flow is followed, but as a safety check
             return False, "Error: Please tell me the number of layers before choosing a size."
 
-        # 2. Get the list of valid sizes for those layers
         valid_sizes_for_layers = LAYER_SIZE_CONSTRAINTS.get(chosen_layers, [])
         
-        # 3. Check if the user's input matches an available size
-        if message in [s.lower() for s in valid_sizes_for_layers]:
+        # Check if the user's input (number or sheet type) is valid
+        if message in valid_sizes_for_layers:
             return True, None
         
-        # 4. If invalid, provide a helpful error showing valid options
+        # Provide a helpful error showing valid options based on layers
         return False, (
             f"The size you entered is not available for {chosen_layers} layers. "
             f"Please choose from these options: {', '.join(valid_sizes_for_layers)}."
@@ -206,20 +199,13 @@ def _validate_input(user_id, current_step, incoming_message):
         if len(message) < 2: 
             return False, "Please provide a more descriptive answer (at least 2 characters)."
 
-    # If no specific rule applied, assume valid
     return True, None
 
 # --- STATE MANAGEMENT CORE ---
 
 def _generate_summary_response(user_id):
-    """Generates a final summary message, saves data, and clears the state."""
+    """Generates a final summary message and returns the text for review."""
     final_data = user_states[user_id]['data']
-    
-    # CRITICAL FIX: Ensure the user_id is saved into the data dictionary
-    final_data['user_id'] = user_id 
-
-    # Save the data to Google Sheets
-    save_order_data(final_data) 
     
     # --- Generate Human-Friendly Summary ---
     summary_lines = ["\n🎂 **Order Summary** 🎂\n"]
@@ -230,22 +216,34 @@ def _generate_summary_response(user_id):
         if value is not None:
             summary_lines.append(f"*{display_name}:* {value}")
             
-    # Add a closing message
-    summary_lines.append("\n✅ Thank you! Your order details have been saved, and we will contact you shortly with a quote.")
-    
     final_message = "\n".join(summary_lines)
+    
+    # Do NOT clear state yet, as we need confirmation!
+    return final_message
+
+def _final_save_and_end(user_id):
+    """Saves the data and generates the final closing message."""
+    final_data = user_states[user_id]['data']
+    final_data['user_id'] = user_id 
+
+    # FINAL SAVE: Call the Google Sheets function
+    save_order_data(final_data) 
+    
+    # Generate final closing message
+    closing_message = "\n✅ Thank you! Your confirmed order details have been saved, and we will contact you shortly with a quote."
     
     # Clear state for next conversation
     user_states[user_id] = {'step': 'COMPLETE', 'data': final_data}
     
-    return final_message
+    return closing_message
 
 def _get_next_step(user_id, incoming_message):
     """Determines the next step based on the current step and the user's input."""
     state = user_states.get(user_id, {'step': 'START', 'data': {}})
     current_step = state['step']
     
-    if incoming_message.lower().strip() == 'reset':
+    # CHANGE 1: Implement 'restart' keyword
+    if incoming_message.lower().strip() == 'restart':
         user_states[user_id] = {'step': 'START', 'data': {}}
         return 'START', FLOW_MAP['START']['question']
 
@@ -267,7 +265,7 @@ def _get_next_step(user_id, incoming_message):
     # --- 2. Determine the NEXT step ---
     next_step = FLOW_MAP[current_step].get('next')
     
-    # Check for conditional branching (ASK_CUSTOM_PICTURE only for now)
+    # Check for conditional branching (ASK_CUSTOM_PICTURE and ASK_CONFIRMATION)
     if 'next_if' in FLOW_MAP[current_step]:
         branch = FLOW_MAP[current_step]['next_if']
         key = incoming_message.lower().strip()
@@ -278,15 +276,31 @@ def _get_next_step(user_id, incoming_message):
             key = 'no'
 
         next_step = branch.get(key, next_step) 
+        
+        # Special case: If confirmation fails, handle the restart message
+        if next_step == 'START' and current_step == 'ASK_CONFIRMATION':
+            user_states[user_id] = {'step': 'START', 'data': {}}
+            return 'START', "Order canceled. Starting over:\n" + FLOW_MAP['START']['question']
 
+
+    # Check if we need to generate a summary for the user to review
+    if next_step == 'ASK_CONFIRMATION':
+        # Generate summary first, then ask confirmation question
+        summary_text = _generate_summary_response(user_id)
+        
+        user_states[user_id]['step'] = 'ASK_CONFIRMATION'
+        return 'ASK_CONFIRMATION', summary_text + "\n" + FLOW_MAP['ASK_CONFIRMATION']['question']
+    
+    # Check if the final save needs to happen
     if next_step == 'SUMMARY':
-        return 'SUMMARY', _generate_summary_response(user_id)
+        # This is the point of no return: save and generate the closing message
+        return 'SUMMARY', _final_save_and_end(user_id)
     
     if next_step:
         user_states[user_id]['step'] = next_step
         return next_step, FLOW_MAP[next_step]['question']
 
-    return 'COMPLETE', "I'm sorry, I've lost my place. Please type 'reset' to start over."
+    return 'COMPLETE', "I'm sorry, I've lost my place. Please type 'restart' to begin over."
 
 
 def get_response(user_id, incoming_message):
