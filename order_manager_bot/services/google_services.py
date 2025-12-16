@@ -16,8 +16,8 @@ SCOPES = [
 ]
 
 CREDENTIALS_FILE = "whats-app-bot-service-account.json"
-SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")'
-DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID")'
+SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
+DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID")
 
 
 gc = None
