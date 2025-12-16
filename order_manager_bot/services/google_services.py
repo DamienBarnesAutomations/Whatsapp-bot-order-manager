@@ -38,7 +38,11 @@ def initialize_google_apis():
 
         # 2. Initialize gspread (for Sheets)
         gc = gspread.authorize(creds)
+        logging.info("Authorized %s", gc)
+
         spreadsheet = gc.open(SPREADSHEET_ID)
+        logging.info("SpreadSheet %s", spreadsheet)
+        
         worksheet = spreadsheet.sheet1 
         logging.info("Google Sheets API (gspread) initialized successfully.")
         
