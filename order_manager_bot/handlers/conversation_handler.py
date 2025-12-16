@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 import time # Used for unique filename generation
 import requests # Used to fetch image data from the provided URL (e.g., WhatsApp media URL)
+import os # NEW: Required to access the WhatsApp token environment variable
 
 # Import necessary data from the config file
 from config.cake_config import FLOW_MAP, DISPLAY_KEY_MAP, LAYER_SIZE_CONSTRAINTS
@@ -11,8 +12,14 @@ from config.cake_config import FLOW_MAP, DISPLAY_KEY_MAP, LAYER_SIZE_CONSTRAINTS
 # Import the validation function
 from validation.validator import validate_input
 
-# NEW IMPORT: Now importing the Drive upload function
+# Import the Google service functions
 from services.google_services import save_order_data, create_calendar_event, upload_and_get_image_url 
+
+# --- CONFIGURATION / TOKEN ACCESS ---
+# Access the WhatsApp Token from environment variables for media download authorization
+WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
+
+logging.basicConfig(level=logging.INFO) # Keep this if you can't centralize it yet
 
 # --- STATE STORAGE ---
 user_states = {}
@@ -29,17 +36,25 @@ def _handle_media_upload(user_id, media_context):
     if not media_context or not media_context.get('url'):
         logging.warning(f"User {user_id} was at ASK_IMAGE_UPLOAD but no media context was provided.")
         return None
+    
+    if not WHATSAPP_TOKEN:
+        logging.error("WHATSAPP_TOKEN is missing. Cannot download media.")
+        return None
 
     media_url = media_context['url']
     mime_type = media_context.get('mime_type', 'image/jpeg')
     
-    # 1. Fetch the image content from the media service (requires appropriate headers/auth for the source)
+    # 1. Fetch the image content from the media service
     try:
-        # NOTE: You MUST replace this 'requests.get' with your actual media fetching logic, 
-        # which often requires passing platform-specific authentication headers.
-        response = requests.get(media_url, stream=True)
-        response.raise_for_status()
+        # FIX FOR 401 UNAUTHORIZED: Must include the Authorization header
+        headers = {
+            "Authorization": f"Bearer {WHATSAPP_TOKEN}"
+        }
+        
+        response = requests.get(media_url, stream=True, headers=headers)
+        response.raise_for_status() # Raises an HTTPError for 4xx or 5xx responses (like 401)
         image_data = response.content
+        
     except Exception as e:
         logging.error(f"Failed to fetch image from URL {media_url}: {e}")
         return None
@@ -54,10 +69,10 @@ def _handle_media_upload(user_id, media_context):
     return drive_url
 
 
-# --- CORE FUNCTIONS (Rest of file) ---
+# --- CORE FUNCTIONS ---
 
 def _generate_summary_response(user_id):
-    # ... (No change) ...
+    """Generates a final summary message and returns the text for review."""
     final_data = user_states[user_id]['data']
     
     summary_lines = ["\n🎂 **Order Summary** 🎂\n"]
@@ -67,7 +82,7 @@ def _generate_summary_response(user_id):
         
         if value is not None:
             # Check for image_url to show a nice link in the summary
-            if data_key == 'image_url' and value and value != 'N/A':
+            if data_key == 'image_url' and value and value != 'N/A' and value != 'Upload Failed':
                  summary_lines.append(f"*{display_name}:* [View Image]({value})")
             else:
                  summary_lines.append(f"*{display_name}:* {value}")
@@ -132,10 +147,16 @@ def _get_next_step(user_id, incoming_message, media_context=None):
 
     # --- Special Handling for ASK_IMAGE_UPLOAD ---
     if current_step == 'ASK_IMAGE_UPLOAD':
+        
+        # Check for skip command before attempting upload
+        if incoming_message.lower().strip() == 'skip':
+            user_states[user_id]['data']['image_url'] = 'N/A (Skipped)'
+            user_states[user_id]['step'] = 'ASK_FLAVOR'
+            return 'ASK_FLAVOR', "Image skipped. " + FLOW_MAP['ASK_FLAVOR']['question']
+            
         drive_url = _handle_media_upload(user_id, media_context)
         
-        # NOTE: The validation above always returns True, so we must rely on drive_url
-        if drive_url:
+        if drive_url and drive_url != 'Upload Failed':
             user_states[user_id]['data']['image_url'] = drive_url
             user_states[user_id]['step'] = 'ASK_FLAVOR' # Proceed to the next step
             # Return the next question
@@ -155,11 +176,6 @@ def _get_next_step(user_id, incoming_message, media_context=None):
     # --- 2. Determine the NEXT step ---
     next_step = FLOW_MAP[current_step].get('next')
     
-    # Handle skip command during image upload step
-    if current_step == 'ASK_IMAGE_UPLOAD' and incoming_message.lower().strip() == 'skip':
-        user_states[user_id]['data']['image_url'] = 'N/A'
-        next_step = 'ASK_FLAVOR'
-        
     # Check for conditional branching
     if 'next_if' in FLOW_MAP[current_step]:
         branch = FLOW_MAP[current_step]['next_if']
@@ -176,9 +192,8 @@ def _get_next_step(user_id, incoming_message, media_context=None):
             return 'START', "Order canceled. Starting over:\n" + FLOW_MAP['START']['question']
 
 
-    # --- Dynamic Question Generation (ASK_SIZE and ASK_CONFIRMATION logic remains the same) ---
+    # --- Dynamic Question Generation (ASK_SIZE) ---
     if next_step == 'ASK_SIZE':
-        # ... (ASK_SIZE logic remains the same) ...
         try:
             chosen_layers = int(user_states[user_id]['data'].get('num_layers'))
         except (ValueError, TypeError):
@@ -196,6 +211,7 @@ def _get_next_step(user_id, incoming_message, media_context=None):
         user_states[user_id]['step'] = next_step
         return next_step, dynamic_question
 
+    # --- Dynamic Question Generation (ASK_CONFIRMATION) ---
     if next_step == 'ASK_CONFIRMATION':
         summary_text = _generate_summary_response(user_id)
         
@@ -215,6 +231,5 @@ def _get_next_step(user_id, incoming_message, media_context=None):
 
 def get_response(user_id, incoming_message, media_context=None):
     """The main entry point for the handler."""
-    # NOTE: The signature must be updated to accept media_context
     next_step, response_text = _get_next_step(user_id, incoming_message, media_context)
     return response_text
