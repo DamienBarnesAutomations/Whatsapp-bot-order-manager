@@ -16,7 +16,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive'
 ]
 
-CREDENTIALS_FILE = "whats-app-bot-service-account.json"
+CREDENTIALS_FILE = os.environ.get("CREDENTIALS_FILE")
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID")
 
@@ -34,7 +34,8 @@ def initialize_google_apis():
     try:
         # 1. Authenticate with the Service Account JSON file
         creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
-        
+        logging.info("Creditentials %s", creds)
+
         # 2. Initialize gspread (for Sheets)
         gc = gspread.authorize(creds)
         spreadsheet = gc.open(SPREADSHEET_ID)
