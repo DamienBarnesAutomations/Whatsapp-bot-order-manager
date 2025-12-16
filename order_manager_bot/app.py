@@ -6,10 +6,8 @@ from services.google_services import initialize_google_apis
 
 # --- Configuration ---
 # Your Flask app instance is still named 'app'
-logger = logging.getLogger(__name__) # Keep this line
 app = Flask(__name__) 
 
-logging.getLogger().setLevel(logging.INFO)
 
 # --- Routes ---
 initialize_google_apis()
@@ -23,7 +21,6 @@ def webhook_get():
 @app.route('/webhook', methods=['POST'])
 def webhook_post():
     data = request.get_json()
-    logging.INFO("Message Received")
     if data and 'object' in data and data['object'] == 'whatsapp_business_account':
         handle_message(data)
     
