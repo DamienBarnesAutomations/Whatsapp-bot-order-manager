@@ -1,7 +1,7 @@
 import os
 import logging
 import requests
-from handlers.conversation_handler import get_conversation_response
+from handlers.conversation_handler import get_response
 
 # Configuration
 GRAPH_API_URL = "https://graph.facebook.com/v19.0"
@@ -53,7 +53,7 @@ def process_whatsapp_message(value):
             logging.info(f"Received message from {sender_phone}: {incoming_text}")
             
             # 3. Get the reply from the conversation logic
-            reply_text = get_conversation_response(sender_phone, incoming_text)
+            reply_text = get_response(sender_phone, incoming_text)
             
             # 4. Send the reply back
             if reply_text:
