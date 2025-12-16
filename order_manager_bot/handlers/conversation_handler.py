@@ -12,6 +12,19 @@ user_states = {}
 
 # --- Flow Definitions ---
 
+DISPLAY_KEY_MAP = {
+    'event_date': 'Event Date',
+    'cake_flavor': 'Cake Flavor',
+    'cake_size': 'Cake Size',
+    'num_layers': 'Number of Layers',
+    'num_tiers': 'Number of Tiers',
+    'cake_color': 'Primary Color',
+    'venue_indoors': 'Venue Indoors?',
+    'venue_ac': 'Venue with A/C?',
+    'has_picture': 'Picture Sent?',
+    'cake_theme': 'Theme/Description',
+}
+
 # Defines the sequence of questions and the data key for the answer
 FLOW_MAP = {
     'ASK_DATE': {'question': "What is the date of the event? (Please reply with DD/MM/YYYY)", 'data_key': 'event_date'},
@@ -102,26 +115,34 @@ def _get_next_step(user_id, incoming_message):
 
 
 def _generate_summary_response(user_id):
-    """Generates a final summary message and clears the state."""
+    """Generates a final summary message, saves data, and clears the state."""
     final_data = user_states[user_id]['data']
-    final_data['user_id'] = user_id 
+    final_data['Telephone'] = user_id 
+
+    # CRITICAL: Save the data to Google Sheets before clearing state
     save_order_data(final_data) 
-
-
+    
+    # --- Generate Human-Friendly Summary ---
+    summary_lines = ["\n🎂 **Order Summary** 🎂\n"]
+    
+    for data_key, display_name in DISPLAY_KEY_MAP.items():
+        # Retrieve the value using the technical key
+        value = final_data.get(data_key)
+        
+        # Only include the line if the data was actually collected
+        if value is not None:
+            # Format the line as "Display Name: Value"
+            summary_lines.append(f"*{display_name}:* {value}")
+            
+    # Add a closing message
+    summary_lines.append("\n✅ Thank you! Your order details have been saved, and we will contact you shortly with a quote.")
+    
+    final_message = "\n".join(summary_lines)
     
     # Clear state for next conversation
     user_states[user_id] = {'step': 'COMPLETE', 'data': final_data}
     
-    # Format the summary message
-    summary_list = "\n".join([f"- {key}: {value}" for key, value in final_data.items()])
-    
-    response = (
-        "Thank you! I have all the details for your custom cake order. "
-        "Here is the summary of your request:\n\n"
-        f"{summary_list}\n\n"
-        "A team member will review this and confirm the price shortly."
-    )
-    return response
+    return final_message
 
 def get_conversation_response(user_id, incoming_message):
     """
