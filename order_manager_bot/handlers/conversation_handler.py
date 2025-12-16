@@ -2,7 +2,8 @@
 
 from datetime import datetime, timedelta
 import logging
-# RENAME: Changing import path to the requested format
+import re
+# CORRECTED IMPORT PATH
 from services.google_services import save_order_data 
 
 logging.basicConfig(level=logging.INFO)
@@ -10,7 +11,6 @@ logging.basicConfig(level=logging.INFO)
 # --- CAKE CONFIGURATION AND RULES ---
 # Defines valid flavors and layer/size constraints.
 CAKE_CONFIG = {
-    # Full list of available flavors (kept for list check)
     "vanilla bean": {}, "carrot": {}, "lemon": {}, "coconut": {},
     "marble": {}, "chocolate": {}, "strawberry": {}, "cookies and cream": {},
     "red velvet": {}, "banana bread": {}, "caribbean fruit/ rum": {}, 
@@ -34,12 +34,13 @@ VALID_YES_NO = ['yes', 'y', 'no', 'n']
 
 FLOW_MAP = {
     'START': {
-        # CHANGE 1: New Welcome Message & Restart Info
-        'question': 'Welcome to the Cake Bot! I can help you place a custom cake order. We will walk through the required details step-by-step.\n\nType **Restart** at any time to begin the conversation over.\n\nWhat is the date of the event? (Please reply with DD/MM/YYYY)',
+        # Welcome Message ONLY (for initial response handling)
+        'question': 'Welcome to the Cake Bot! I can help you place a custom cake order. We will walk through the required details step-by-step.\n\nType **Restart** at any time to begin the conversation over.',
         'data_key': None,
-        'next': 'ASK_DATE',
+        'next': 'ASK_DATE', 
     },
     'ASK_DATE': {
+        # First Question
         'question': 'What is the date of the event? (Please reply with DD/MM/YYYY)',
         'data_key': 'event_date',
         'next': 'ASK_CUSTOM_PICTURE',
@@ -48,10 +49,11 @@ FLOW_MAP = {
         'question': 'Do you have a picture of the custom cake you would like? (Yes/No)',
         'data_key': 'has_picture',
         'next_if': {
-            'yes': 'ASK_FLAVOR',
+            'yes': 'ASK_FLAVOR', # Jumps to next question (skips image upload)
             'no': 'ASK_FLAVOR',
         },
     },
+    # ASK_IMAGE_UPLOAD step is omitted until the handling code is ready
     'ASK_FLAVOR': {
         'question': f'What flavor would you like? We offer: {", ".join([f.title() for f in VALID_FLAVORS])}.',
         'data_key': 'cake_flavor',
@@ -63,7 +65,6 @@ FLOW_MAP = {
         'next': 'ASK_SIZE',
     },
     'ASK_SIZE': {
-        # Simplified size input: only expects number (6, 8, etc.) or sheet type (quarter sheet, half sheet)
         'question': 'What size cake? Please enter the size in inches (e.g., **8** or **10**), or type **quarter sheet** or **half sheet**.',
         'data_key': 'cake_size',
         'next': 'ASK_TIERS',
@@ -91,14 +92,14 @@ FLOW_MAP = {
     'ASK_AC': {
         'question': 'Does the venue have air conditioning? (Critical for stability - Yes/No)',
         'data_key': 'venue_ac',
-        'next': 'ASK_CONFIRMATION', # CHANGE 2: New step before SUMMARY
+        'next': 'ASK_CONFIRMATION', 
     },
     'ASK_CONFIRMATION': {
         'question': 'Please review the summary above. Is this information correct and ready to save? (Yes/No)',
         'data_key': None,
         'next_if': {
             'yes': 'SUMMARY',
-            'no': 'START', # If No, start over
+            'no': 'START', 
         },
     },
 }
@@ -129,9 +130,8 @@ def _validate_input(user_id, current_step, incoming_message):
     """
     message = incoming_message.strip().lower()
     
-    # --- Date Validation (Specific Format and Future Check) ---
+    # --- Date Validation ---
     if current_step == 'ASK_DATE':
-        # ... (date validation logic remains the same) ...
         try:
             event_date = datetime.strptime(incoming_message, '%d/%m/%Y')
             if event_date < datetime.now() - timedelta(hours=24): 
@@ -172,11 +172,9 @@ def _validate_input(user_id, current_step, incoming_message):
 
         valid_sizes_for_layers = LAYER_SIZE_CONSTRAINTS.get(chosen_layers, [])
         
-        # Check if the user's input (number or sheet type) is valid
         if message in valid_sizes_for_layers:
             return True, None
         
-        # Provide a helpful error showing valid options based on layers
         return False, (
             f"The size you entered is not available for {chosen_layers} layers. "
             f"Please choose from these options: {', '.join(valid_sizes_for_layers)}."
@@ -207,7 +205,6 @@ def _generate_summary_response(user_id):
     """Generates a final summary message and returns the text for review."""
     final_data = user_states[user_id]['data']
     
-    # --- Generate Human-Friendly Summary ---
     summary_lines = ["\n🎂 **Order Summary** 🎂\n"]
     
     for data_key, display_name in DISPLAY_KEY_MAP.items():
@@ -218,12 +215,13 @@ def _generate_summary_response(user_id):
             
     final_message = "\n".join(summary_lines)
     
-    # Do NOT clear state yet, as we need confirmation!
+    # Do NOT clear state yet
     return final_message
 
 def _final_save_and_end(user_id):
     """Saves the data and generates the final closing message."""
     final_data = user_states[user_id]['data']
+    # CRITICAL FIX: Ensure the user_id is saved into the data dictionary
     final_data['user_id'] = user_id 
 
     # FINAL SAVE: Call the Google Sheets function
@@ -242,14 +240,16 @@ def _get_next_step(user_id, incoming_message):
     state = user_states.get(user_id, {'step': 'START', 'data': {}})
     current_step = state['step']
     
-    # CHANGE 1: Implement 'restart' keyword
+    # Implement 'restart' keyword
     if incoming_message.lower().strip() == 'restart':
         user_states[user_id] = {'step': 'START', 'data': {}}
-        return 'START', FLOW_MAP['START']['question']
+        return 'START', FLOW_MAP['START']['question'] + "\n" + FLOW_MAP['ASK_DATE']['question']
+
 
     if current_step == 'START':
+        # Handle the initial message: send welcome AND first question, set state to ASK_DATE
         user_states[user_id] = {'step': 'ASK_DATE', 'data': {}}
-        return 'ASK_DATE', FLOW_MAP['ASK_DATE']['question']
+        return 'ASK_DATE', FLOW_MAP['START']['question'] + "\n" + FLOW_MAP['ASK_DATE']['question']
         
     # --- VALIDATION CHECK ---
     is_valid, feedback = _validate_input(user_id, current_step, incoming_message)
@@ -265,35 +265,31 @@ def _get_next_step(user_id, incoming_message):
     # --- 2. Determine the NEXT step ---
     next_step = FLOW_MAP[current_step].get('next')
     
-    # Check for conditional branching (ASK_CUSTOM_PICTURE and ASK_CONFIRMATION)
+    # Check for conditional branching
     if 'next_if' in FLOW_MAP[current_step]:
         branch = FLOW_MAP[current_step]['next_if']
         key = incoming_message.lower().strip()
         
-        if key in ['y', 'yes']:
-            key = 'yes'
-        elif key in ['n', 'no']:
-            key = 'no'
+        if key in ['y', 'yes']: key = 'yes'
+        elif key in ['n', 'no']: key = 'no'
 
         next_step = branch.get(key, next_step) 
         
-        # Special case: If confirmation fails, handle the restart message
+        # Confirmation denied: send the restart message
         if next_step == 'START' and current_step == 'ASK_CONFIRMATION':
             user_states[user_id] = {'step': 'START', 'data': {}}
             return 'START', "Order canceled. Starting over:\n" + FLOW_MAP['START']['question']
 
 
-    # Check if we need to generate a summary for the user to review
+    # Confirmation Step: Generate summary and ask for confirmation
     if next_step == 'ASK_CONFIRMATION':
-        # Generate summary first, then ask confirmation question
         summary_text = _generate_summary_response(user_id)
         
         user_states[user_id]['step'] = 'ASK_CONFIRMATION'
         return 'ASK_CONFIRMATION', summary_text + "\n" + FLOW_MAP['ASK_CONFIRMATION']['question']
     
-    # Check if the final save needs to happen
+    # Final Save Step: Confirmation was "Yes"
     if next_step == 'SUMMARY':
-        # This is the point of no return: save and generate the closing message
         return 'SUMMARY', _final_save_and_end(user_id)
     
     if next_step:
