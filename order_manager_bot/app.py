@@ -23,7 +23,7 @@ def webhook_get():
 @app.route('/webhook', methods=['POST'])
 def webhook_post():
     data = request.get_json()
-    logging.Info("Message Received")
+    logging.INFO("Message Received")
     if data and 'object' in data and data['object'] == 'whatsapp_business_account':
         handle_message(data)
     
