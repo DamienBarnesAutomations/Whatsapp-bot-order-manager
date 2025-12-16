@@ -8,8 +8,6 @@ GRAPH_API_URL = "https://graph.facebook.com/v19.0"
 WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 
-logging.basicConfig(level=logging.INFO)
-
 def send_whatsapp_message(to_number, text_message):
     """Sends a text message using the WhatsApp Cloud API."""
     if not WHATSAPP_TOKEN or not PHONE_NUMBER_ID:

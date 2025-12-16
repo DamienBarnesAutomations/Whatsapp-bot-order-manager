@@ -3,8 +3,6 @@ import logging
 from handlers.whatsapp_handler import process_whatsapp_message
 
 # Set up basic logging
-logging.basicConfig(level=logging.INFO)
-
 # --- Webhook Verification Logic ---
 def verify_webhook(args):
     """Verifies the webhook subscription with Meta."""

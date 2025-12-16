@@ -39,9 +39,14 @@ FLOW_MAP = {
         'question': 'Do you have a picture of the custom cake you would like? (Yes/No)',
         'data_key': 'has_picture',
         'next_if': {
-            'yes': 'ASK_FLAVOR', # Still skipping image upload for now
-            'no': 'ASK_FLAVOR',
+            'yes': 'ASK_IMAGE_UPLOAD', # *** CORRECTED FLOW: Redirects to image upload ***
+            'no': 'ASK_FLAVOR',        # Redirects to flavor if no picture
         },
+    },
+    'ASK_IMAGE_UPLOAD': { # *** NEW STEP ADDED ***
+        'question': 'Great! Please send the picture now. You can also type **Skip** if you change your mind.',
+        'data_key': 'image_url', # This will store the Google Drive URL
+        'next': 'ASK_FLAVOR',
     },
     'ASK_FLAVOR': {
         'question': f'What flavor would you like? We offer: {", ".join([f.title() for f in VALID_FLAVORS])}.',
@@ -54,7 +59,7 @@ FLOW_MAP = {
         'next': 'ASK_SIZE',
     },
     'ASK_SIZE': {
-        'question': '', 
+        'question': '', # Dynamic question handled in conversation_handler
         'data_key': 'cake_size',
         'next': 'ASK_TIERS',
     },
@@ -91,6 +96,11 @@ FLOW_MAP = {
             'no': 'START', 
         },
     },
+    'SUMMARY': {
+        'question': 'Final saving stage.',
+        'data_key': None,
+        'next': None,
+    }
 }
 
 # Mapping of technical data keys to human-readable display names for the final summary
@@ -105,4 +115,5 @@ DISPLAY_KEY_MAP = {
     'venue_indoors': 'Venue Indoors?',
     'venue_ac': 'Venue with A/C?',
     'has_picture': 'Picture Sent?',
+    'image_url': 'Reference Image', # *** NEW ENTRY for the Drive URL ***
 }

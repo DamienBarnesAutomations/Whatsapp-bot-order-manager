@@ -1,12 +1,18 @@
 import os
 from flask import Flask, request, jsonify
 from handlers.message_handler import handle_message, verify_webhook
+import logging
+from services.google_services import initialize_google_apis
 
 # --- Configuration ---
 # Your Flask app instance is still named 'app'
+logger = logging.getLogger(__name__) # Keep this line
 app = Flask(__name__) 
 
+logging.getLogger().setLevel(logging.INFO)
+
 # --- Routes ---
+initialize_google_apis()
 
 # 1. Webhook Verification (GET)
 @app.route('/webhook', methods=['GET'])
