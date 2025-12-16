@@ -8,6 +8,7 @@ from services.google_services import initialize_google_apis
 # Your Flask app instance is still named 'app'
 app = Flask(__name__) 
 
+logging.getLogger().setLevel(logging.INFO)
 
 # --- Routes ---
 initialize_google_apis()
