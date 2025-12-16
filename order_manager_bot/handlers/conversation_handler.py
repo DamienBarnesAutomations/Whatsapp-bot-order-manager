@@ -10,32 +10,37 @@ from services.google_services import save_order_data
 logging.basicConfig(level=logging.INFO)
 
 # --- CAKE CONFIGURATION AND RULES ---
-# Defines valid flavor/size combinations and their supported layer counts
+# Defines valid flavors and layer/size constraints.
 CAKE_CONFIG = {
-    # FLAVOR: {SIZE: [VALID_LAYERS]}
-    "chocolate": {
-        "small (6-inch)": [2, 3],
-        "medium (8-inch)": [2, 3, 4],
-        "large (10-inch)": [3, 4, 5]
-    },
-    "vanilla": {
-        "small (6-inch)": [2, 3],
-        "medium (8-inch)": [2, 3, 4],
-        "large (10-inch)": [3, 4]
-    },
-    "red velvet": {
-        "medium (8-inch)": [3, 4],
-        "large (10-inch)": [3, 4, 5]
-    },
-    "lemon": {
-        "small (6-inch)": [2],
-        "medium (8-inch)": [2, 3]
-    },
+    # Full list of available flavors
+    "vanilla bean": {},
+    "carrot": {},
+    "lemon": {},
+    "coconut": {},
+    "marble": {},
+    "chocolate": {},
+    "strawberry": {},
+    "cookies and cream": {},
+    "red velvet": {},
+    "banana bread": {},
+    "caribbean fruit/ rum": {},
+    "butter pecan": {},
+    "white chocolate sponge": {},
+    "pineapple sponge": {},
 }
+
+# Defines which sizes are available for a given number of layers.
+# Note: Sizes are listed with their layer count to make selection explicit for the user.
+LAYER_SIZE_CONSTRAINTS = {
+    1: ['6-inch 1 layer', '8-inch 1 layer', '9-inch 1 layer', '10-inch 1 layer', '12-inch 1 layer', 'quarter sheet 1 layer', 'half sheet 1 layer'],
+    2: ['6-inch 2 layers', '8-inch 2 layers', '9-inch 2 layers', '10-inch 2 layers', '12-inch 2 layers', 'quarter sheet 2 layers', 'half sheet 2 layers'],
+    3: ['6-inch 3 layers', '8-inch 3 layers'],
+}
+VALID_LAYERS = list(LAYER_SIZE_CONSTRAINTS.keys())
 
 # Lists derived from config for simpler validation checks
 VALID_FLAVORS = list(CAKE_CONFIG.keys()) 
-VALID_SIZES = sorted(list(set(s for config in CAKE_CONFIG.values() for s in config.keys())))
+VALID_SIZES = sorted(list(size for sizes in LAYER_SIZE_CONSTRAINTS.values() for size in sizes))
 VALID_YES_NO = ['yes', 'y', 'no', 'n']
 
 # --- FLOW AND STATE MAPS ---
@@ -55,29 +60,25 @@ FLOW_MAP = {
         'question': 'Do you have a picture of the custom cake you would like? (Yes/No)',
         'data_key': 'has_picture',
         'next_if': {
-            # NOTE: We temporarily skip the image upload step and go straight to flavor
+            # Skipping image upload step for now, but recording the answer
             'yes': 'ASK_FLAVOR',
             'no': 'ASK_FLAVOR',
         },
     },
-    # 'ASK_IMAGE_UPLOAD': { 
-    #     'question': 'Please upload the picture now!',
-    #     'data_key': 'image_url', # Stored later via whatsapp_handler/google_sheets_drive
-    #     'next': 'ASK_FLAVOR',
-    # },
+    # Image upload step skipped until Google Drive API is implemented.
     'ASK_FLAVOR': {
-        'question': f'What flavor would you like? We offer: {", ".join(VALID_FLAVORS).title()}.',
+        'question': f'What flavor would you like? We offer: {", ".join([f.title() for f in VALID_FLAVORS])}.',
         'data_key': 'cake_flavor',
-        'next': 'ASK_SIZE',
-    },
-    'ASK_SIZE': {
-        'question': f'What size cake? We offer: {", ".join(VALID_SIZES).title()}.',
-        'data_key': 'cake_size',
         'next': 'ASK_LAYERS',
     },
     'ASK_LAYERS': {
-        'question': 'How many layers would you like? (A number)',
+        'question': f'How many layers would you like? We support: {", ".join(map(str, VALID_LAYERS))} layers.',
         'data_key': 'num_layers',
+        'next': 'ASK_SIZE',
+    },
+    'ASK_SIZE': {
+        'question': 'What size cake would you like? Please reply with one of the available options based on your layer choice (e.g., 8-inch 2 layers, quarter sheet 1 layer).',
+        'data_key': 'cake_size',
         'next': 'ASK_TIERS',
     },
     'ASK_TIERS': {
@@ -111,8 +112,8 @@ FLOW_MAP = {
 DISPLAY_KEY_MAP = {
     'event_date': 'Event Date',
     'cake_flavor': 'Cake Flavor',
-    'cake_size': 'Cake Size',
     'num_layers': 'Number of Layers',
+    'cake_size': 'Cake Size',
     'num_tiers': 'Number of Tiers',
     'cake_color': 'Primary Color',
     'cake_theme': 'Theme/Description',
@@ -122,7 +123,6 @@ DISPLAY_KEY_MAP = {
 }
 
 # --- STATE STORAGE ---
-# Global dictionary to hold user state: {phone_number: {'step': 'STEP_NAME', 'data': {...}}}
 user_states = {}
 
 # --- VALIDATION LOGIC ---
@@ -150,16 +150,45 @@ def _validate_input(user_id, current_step, incoming_message):
             return True, None
         return False, "Please reply with a simple **Yes** or **No**."
 
-    # --- Flavor and Size Validation (List/Lookup) ---
+    # --- Flavor Validation (List/Lookup) ---
     if current_step == 'ASK_FLAVOR':
         if message in VALID_FLAVORS: 
             return True, None
-        return False, f"Sorry, we only offer these flavors: {', '.join(VALID_FLAVORS).title()}. Please choose one."
+        return False, f"Sorry, we only offer these flavors: {', '.join([f.title() for f in VALID_FLAVORS])}. Please choose one."
         
+    # --- Numeric Validation (Layers) ---
+    if current_step == 'ASK_LAYERS':
+        try:
+            requested_layers = int(incoming_message)
+            if requested_layers in VALID_LAYERS:
+                return True, None
+            return False, f"We only support {', '.join(map(str, VALID_LAYERS))} layers. Please choose one of those numbers."
+        except ValueError:
+            return False, "Please enter a valid number for layers (e.g., 2)."
+
+    # --- Combined Validation: SIZE (Must match previously selected layers) ---
     if current_step == 'ASK_SIZE':
-        if message in VALID_SIZES:
+        # 1. Fetch the previously chosen number of layers
+        user_data = user_states.get(user_id, {}).get('data', {})
+        try:
+            chosen_layers = int(user_data.get('num_layers'))
+        except (ValueError, TypeError):
+            # Should not happen if flow is followed, but as a safety check
+            return False, "Error: Please tell me the number of layers before choosing a size."
+
+        # 2. Get the list of valid sizes for those layers
+        valid_sizes_for_layers = LAYER_SIZE_CONSTRAINTS.get(chosen_layers, [])
+        
+        # 3. Check if the user's input matches an available size
+        if message in [s.lower() for s in valid_sizes_for_layers]:
             return True, None
-        return False, f"Sorry, we only offer these sizes: {', '.join(VALID_SIZES).title()}. Please choose one."
+        
+        # 4. If invalid, provide a helpful error showing valid options
+        return False, (
+            f"The size you entered is not available for {chosen_layers} layers. "
+            f"Please choose from these options: {', '.join(valid_sizes_for_layers)}."
+        )
+
 
     # --- Numeric Validation (Tiers) ---
     if current_step == 'ASK_TIERS': 
@@ -171,29 +200,6 @@ def _validate_input(user_id, current_step, incoming_message):
         except ValueError:
             return False, "Please enter a valid number (e.g., 2)."
             
-    # --- COMBINED VALIDATION: LAYERS (Business Logic) ---
-    if current_step == 'ASK_LAYERS':
-        try:
-            requested_layers = int(incoming_message)
-        except ValueError:
-            return False, "Please enter a valid number for layers (e.g., 3)."
-
-        user_data = user_states.get(user_id, {}).get('data', {})
-        chosen_flavor = user_data.get('cake_flavor', '').lower()
-        chosen_size = user_data.get('cake_size', '').lower()
-
-        valid_layers = CAKE_CONFIG.get(chosen_flavor, {}).get(chosen_size)
-
-        if valid_layers is None:
-            return False, "Error: I could not validate that flavor/size combination. Please try again from the start."
-            
-        if requested_layers not in valid_layers:
-            return False, (
-                f"Sorry, a {chosen_size} cake in {chosen_flavor.title()} only supports "
-                f"**{', '.join(map(str, valid_layers))}** layers. Please choose one of those numbers."
-            )
-            
-        return True, None
         
     # --- Length/Contextual Validation (Theme and Color) ---
     if current_step in ['ASK_THEME', 'ASK_COLOR']:
@@ -208,8 +214,10 @@ def _validate_input(user_id, current_step, incoming_message):
 def _generate_summary_response(user_id):
     """Generates a final summary message, saves data, and clears the state."""
     final_data = user_states[user_id]['data']
+    
+    # CRITICAL FIX: Ensure the user_id is saved into the data dictionary
     final_data['user_id'] = user_id 
-    logging.info("Final Data: %s", final_data)
+
     # Save the data to Google Sheets
     save_order_data(final_data) 
     
@@ -237,7 +245,6 @@ def _get_next_step(user_id, incoming_message):
     state = user_states.get(user_id, {'step': 'START', 'data': {}})
     current_step = state['step']
     
-    # Allow user to reset at any point
     if incoming_message.lower().strip() == 'reset':
         user_states[user_id] = {'step': 'START', 'data': {}}
         return 'START', FLOW_MAP['START']['question']
@@ -246,11 +253,10 @@ def _get_next_step(user_id, incoming_message):
         user_states[user_id] = {'step': 'ASK_DATE', 'data': {}}
         return 'ASK_DATE', FLOW_MAP['ASK_DATE']['question']
         
-    # --- VALIDATION CHECK (Runs on every step after START) ---
+    # --- VALIDATION CHECK ---
     is_valid, feedback = _validate_input(user_id, current_step, incoming_message)
 
     if not is_valid:
-        # Stay on the current step and send feedback
         return current_step, f"🛑 **Validation Error:** {feedback} Please try again: {FLOW_MAP[current_step]['question']}"
 
     # --- 1. Collect and store data (ONLY if input is valid) ---
@@ -280,7 +286,6 @@ def _get_next_step(user_id, incoming_message):
         user_states[user_id]['step'] = next_step
         return next_step, FLOW_MAP[next_step]['question']
 
-    # Default fallback
     return 'COMPLETE', "I'm sorry, I've lost my place. Please type 'reset' to start over."
 
 
