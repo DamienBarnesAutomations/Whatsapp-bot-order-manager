@@ -79,7 +79,7 @@ def _view_future_orders(user_id):
     for i, order in enumerate(orders, 1):
         # Generate a concise summary for each order
         price = order.get('price', '').strip()
-        price_display = f"💰 **Price:** {price}" if price else "💰 **Price:** _Awaiting Quote_"
+        price_display = f"**Price:** {price}" if price else "**Price:** _Awaiting Quote_"
 
         line = (
             f"*{i}. Event Date:* {order.get('event_date', 'N/A')}\n"
