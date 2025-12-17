@@ -71,16 +71,20 @@ def _view_future_orders(user_id):
     
     if not orders:
         return "😔 You currently have no upcoming orders with us."
+    
+    
         
     response_lines = ["\n🎂 **Your Upcoming Orders** 🎂"]
     
     for i, order in enumerate(orders, 1):
         # Generate a concise summary for each order
+        price = order.get('Price', '').strip()
+
         line = (
             f"*{i}. Event Date:* {order.get('event_date', 'N/A')}\n"
             f"   - **Flavor/Size:** {order.get('cake_flavor', 'N/A').title()} ({order.get('cake_size', 'N/A')})\n"
             f"   - **Theme:** {order.get('cake_theme', 'N/A')}\n"
-            f"   - **Image:** {order.get('image_url', 'N/A')[:40]}...\n"
+            f"💰 **Price:** {price}" if price else "💰 **Price:** _Awaiting Quote_"
         )
         response_lines.append(line)
         
