@@ -75,10 +75,7 @@ def _generate_summary_response(user_id):
         
         if value is not None:
             # Check for image_url to show a nice link in the summary
-            if data_key == 'image_url' and value and value != 'N/A' and value != 'Upload Failed':
-                 summary_lines.append(f"*{display_name}:* [View Image]({value})")
-            else:
-                 summary_lines.append(f"*{display_name}:* {value}")
+            summary_lines.append(f"*{display_name}:* {value}")
             
     final_message = "\n".join(summary_lines)
     
