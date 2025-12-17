@@ -6,3 +6,4 @@ gspread   # Will need this later, but safe to include now
 google-api-python-client # Will need this later
 google-auth-oauthlib # Will need this later
 google-auth
+cloudinary

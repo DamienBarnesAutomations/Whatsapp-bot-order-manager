@@ -14,6 +14,7 @@ from validation.validator import validate_input
 
 # Import the Google service functions
 from services.google_services import save_order_data, create_calendar_event, upload_and_get_image_url 
+from services.cloudinary_services import upload_image_to_cloudinary 
 
 # --- CONFIGURATION / TOKEN ACCESS ---
 # Access the WhatsApp Token from environment variables for media download authorization
@@ -28,33 +29,25 @@ user_states = {}
 
 def _handle_media_upload(user_id, media_context):
     """
-    Handles fetching media from a temporary URL and uploading it to Google Drive.
+    Handles fetching media from a temporary URL and uploading it to Cloudinary.
     
     :param media_context: A dictionary containing media info (e.g., {'url': ..., 'mime_type': ...})
-    :return: The Google Drive URL or None.
+    :return: The Cloudinary URL or None.
     """
     if not media_context or not media_context.get('url'):
         logging.warning(f"User {user_id} was at ASK_IMAGE_UPLOAD but no media context was provided.")
-        return None
-    
-    if not WHATSAPP_TOKEN:
-        logging.error("WHATSAPP_TOKEN is missing. Cannot download media.")
         return None
 
     media_url = media_context['url']
     mime_type = media_context.get('mime_type', 'image/jpeg')
     
-    # 1. Fetch the image content from the media service
+    # ... (1. Fetch the image content from the media service - REMAINS THE SAME, including headers for WhatsApp) ...
     try:
-        # FIX FOR 401 UNAUTHORIZED: Must include the Authorization header
-        headers = {
-            "Authorization": f"Bearer {WHATSAPP_TOKEN}"
-        }
-        
+        # Ensure your WHATSAPP_TOKEN is configured here for this request!
+        headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"} 
         response = requests.get(media_url, stream=True, headers=headers)
-        response.raise_for_status() # Raises an HTTPError for 4xx or 5xx responses (like 401)
+        response.raise_for_status()
         image_data = response.content
-        
     except Exception as e:
         logging.error(f"Failed to fetch image from URL {media_url}: {e}")
         return None
@@ -63,8 +56,8 @@ def _handle_media_upload(user_id, media_context):
     extension = mime_type.split('/')[-1].replace('jpeg', 'jpg')
     file_name = f"{user_id}_{int(time.time())}.{extension}"
     
-    # 3. Upload to Google Drive
-    drive_url = upload_and_get_image_url(image_data, file_name, mime_type)
+    # 3. Upload to Cloudinary (REPLACES Google Drive call)
+    drive_url = upload_image_to_cloudinary(image_data, file_name) # Call the new function
     
     return drive_url
 
@@ -112,11 +105,6 @@ def _final_save_and_end(user_id):
     
     # 3. Generate closing message
     closing_message = "\n✅ Thank you! Your confirmed order details have been saved, and we will contact you shortly with a quote."
-    
-    if calendar_success:
-        closing_message += "\n📅 A new event has been added to your Google Calendar for the event date."
-    else:
-        closing_message += "\n⚠️ Warning: Failed to automatically create the calendar event. Please check your calendar manually."
     
     # Clear state for next conversation
     user_states[user_id] = {'step': 'COMPLETE', 'data': final_data}
