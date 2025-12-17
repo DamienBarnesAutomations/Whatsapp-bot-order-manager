@@ -3,51 +3,44 @@
 import gspread
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
-from datetime import datetime
-import io
+from datetime import datetime, date
 import logging
 import os
 
 # --- Configuration (using environment variables from your code) ---
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/drive',
+    # 'https://www.googleapis.com/auth/drive', # <<< REMOVED: No longer using Google Drive API
     'https://www.googleapis.com/auth/calendar'
 ]
 
 CREDENTIALS_FILE = os.environ.get("CREDENTIALS_FILE")
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
-DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID") # Used for image upload
-CALENDAR_ID = os.environ.get("CALENDAR_ID") # Used for calendar creation
+# DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID") # <<< REMOVED: No longer needed
+CALENDAR_ID = os.environ.get("CALENDAR_ID")
 
 gc = None
-sheets_service = None # Not strictly needed if using gspread, but kept for consistency
-drive_service = None
-calendar_service = None # NEW: Global variable for Calendar service
+calendar_service = None
 worksheet = None
+# drive_service = None # <<< REMOVED
 
 # --- Initialization Function ---
 def initialize_google_apis():
     """Authenticates and initializes all required Google API clients."""
-    global gc, sheets_service, drive_service, calendar_service, worksheet
+    global gc, calendar_service, worksheet
     
     try:
         # 1. Authenticate with the Service Account JSON file
         creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
         logging.info("Credentials initialized.")
 
-        # 2. Initialize gspread (for Sheets data entry)
+        # 2. Initialize gspread (for Sheets data entry and reading)
         gc = gspread.authorize(creds)
         spreadsheet = gc.open_by_key(SPREADSHEET_ID)
         worksheet = spreadsheet.sheet1 
         logging.info("Google Sheets API (gspread) initialized successfully.")
         
-        # 3. Initialize Drive API Client (for image uploads)
-        drive_service = build('drive', 'v3', credentials=creds)
-        logging.info("Google Drive API initialized successfully.")
-        
-        # 4. Initialize Calendar API Client (for event creation)
+        # 3. Initialize Calendar API Client (for event creation)
         calendar_service = build('calendar', 'v3', credentials=creds)
         logging.info("Google Calendar API initialized successfully.")
         
@@ -55,14 +48,13 @@ def initialize_google_apis():
         logging.error(f"FATAL: Failed to initialize Google APIs. Error: {e}")
         gc = None 
         worksheet = None
-        drive_service = None
         calendar_service = None
 
 # Run initialization once on startup
 initialize_google_apis()
 
 
-# --- Sheets Core Function (No change needed here) ---
+# --- Sheets Core Function: Save Data ---
 def save_order_data(data):
     """
     Saves a completed order dictionary to the Google Sheet.
@@ -73,7 +65,7 @@ def save_order_data(data):
 
     try:
         # Define the header keys in the required order (matching your Sheet columns)
-        # Assuming the first column is the timestamp (added below)
+        # Note: Order is crucial. Timestamp is the first column.
         HEADERS = [
             'user_id', 'event_date', 'cake_flavor', 'cake_size', 'num_layers', 
             'num_tiers', 'cake_color', 'venue_indoors', 'venue_ac', 
@@ -95,57 +87,64 @@ def save_order_data(data):
         logging.error(f"Error appending data to Google Sheet: {e}")
         return False
 
-
-# --- Drive Core Function (FULLY IMPLEMENTED) ---
-def upload_and_get_image_url(image_data, file_name, mime_type):
+# --- Sheets Core Function: Retrieve Future Orders (NEW) ---
+def get_future_orders(user_id):
     """
-    Uploads the image file (binary data) to Google Drive and returns the shareable URL.
-    :param image_data: Binary content of the image (e.g., from requests.get().content)
-    :param file_name: The desired filename in Drive (e.g., user_id-timestamp.jpg)
-    :param mime_type: The MIME type of the file (e.g., image/jpeg)
-    :return: The shareable web view link, or None on failure.
+    Retrieves all orders for the given user_id where the event date is today or in the future.
+    
+    :param user_id: The sender's phone number.
+    :return: A list of dictionaries, one for each future order, or an empty list.
     """
-    if drive_service is None or DRIVE_FOLDER_ID is None:
-        logging.error("Cannot upload image: Google Drive or FOLDER_ID not initialized.")
-        return None
-
+    if worksheet is None:
+        logging.error("Cannot retrieve data: Google Sheets not initialized.")
+        return []
+    
+    today = date.today()
+    future_orders = []
+    
     try:
-        # 1. Prepare the file metadata
-        file_metadata = {
-            'name': file_name,
-            'parents': [DRIVE_FOLDER_ID]
-        }
+        # Fetch all records as a list of dictionaries (key=header, value=cell content)
+        all_records = worksheet.get_all_records()
         
-        # 2. Convert binary data to a file-like object
-        media = MediaIoBaseUpload(io.BytesIO(image_data), 
-                                  mimetype=mime_type, 
-                                  chunksize=1024*1024, 
-                                  resumable=True)
+        # NOTE: We assume the column headers in your sheet are exactly: 
+        # ['Timestamp', 'user_id', 'event_date', 'cake_flavor', ...]
         
-        # 3. Upload the file
-        file = drive_service.files().create(body=file_metadata,
-                                            media_body=media,
-                                            fields='id, webViewLink, parents').execute()
+        for order in all_records:
+            # 1. Check if the order belongs to the current user
+            if str(order.get('user_id')) == str(user_id):
+                
+                # 2. Check the date
+                event_date_str = order.get('event_date')
+                try:
+                    # Convert DD/MM/YYYY to a datetime.date object
+                    event_date_obj = datetime.strptime(event_date_str, '%d/%m/%Y').date()
+                    
+                    # Check if the date is today or in the future
+                    if event_date_obj >= today:
+                        # Convert date back to a clean string for display
+                        order['event_date'] = event_date_obj.strftime('%d %b %Y')
+                        future_orders.append(order)
+                        
+                except ValueError:
+                    logging.warning(f"Skipping order with invalid date format: {event_date_str}")
+                    continue
+                    
+        # Sort orders by date (earliest first)
+        future_orders.sort(key=lambda x: datetime.strptime(x['event_date'], '%d %b %Y'))
         
-        file_id = file.get('id')
-        logging.info(f"File uploaded successfully. ID: {file_id}")
+        return future_orders
         
-        # 4. Set permission to 'anyone' to make it publicly viewable (optional but common for bots)
-        drive_service.permissions().create(
-            fileId=file_id,
-            body={'type': 'anyone', 'role': 'reader'}
-        ).execute()
-
-        web_view_link = file.get('webViewLink')
-        logging.info(f"Permission set to public. URL: {web_view_link}")
-        return web_view_link
-
     except Exception as e:
-        logging.error(f"Error uploading file to Google Drive: {e}")
-        return None
+        logging.error(f"Error retrieving orders from Google Sheet: {e}")
+        return []
 
 
-# --- Calendar Core Function (FULLY IMPLEMENTED) ---
+# --- Drive Core Function (REMOVED) ---
+# NOTE: The upload_and_get_image_url function is no longer here. 
+# The caller (conversation_handler.py) must now use cloudinary_services.py instead.
+
+
+# --- Calendar Core Function (No change needed here) ---
 def create_calendar_event(data):
     """
     Creates an all-day event in the configured Google Calendar.

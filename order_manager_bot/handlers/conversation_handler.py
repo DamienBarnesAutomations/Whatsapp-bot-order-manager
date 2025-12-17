@@ -2,9 +2,9 @@
 
 import logging
 from datetime import datetime
-import time # Used for unique filename generation
-import requests # Used to fetch image data from the provided URL (e.g., WhatsApp media URL)
-import os # NEW: Required to access the WhatsApp token environment variable
+import time 
+import requests 
+import os 
 
 # Import necessary data from the config file
 from config.cake_config import FLOW_MAP, DISPLAY_KEY_MAP, LAYER_SIZE_CONSTRAINTS
@@ -12,15 +12,14 @@ from config.cake_config import FLOW_MAP, DISPLAY_KEY_MAP, LAYER_SIZE_CONSTRAINTS
 # Import the validation function
 from validation.validator import validate_input
 
-# Import the Google service functions
-from services.google_services import save_order_data, create_calendar_event, upload_and_get_image_url 
-from services.cloudinary_services import upload_image_to_cloudinary 
+# Import the Google service functions (now includes get_future_orders)
+from services.google_services import save_order_data, create_calendar_event, get_future_orders
+from services.cloudy_services import upload_image_to_cloudinary 
 
 # --- CONFIGURATION / TOKEN ACCESS ---
-# Access the WhatsApp Token from environment variables for media download authorization
 WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
 
-logging.basicConfig(level=logging.INFO) # Keep this if you can't centralize it yet
+logging.basicConfig(level=logging.INFO) 
 
 # --- STATE STORAGE ---
 user_states = {}
@@ -41,9 +40,8 @@ def _handle_media_upload(user_id, media_context):
     media_url = media_context['url']
     mime_type = media_context.get('mime_type', 'image/jpeg')
     
-    # ... (1. Fetch the image content from the media service - REMAINS THE SAME, including headers for WhatsApp) ...
+    # 1. Fetch the image content from the media service
     try:
-        # Ensure your WHATSAPP_TOKEN is configured here for this request!
         headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"} 
         response = requests.get(media_url, stream=True, headers=headers)
         response.raise_for_status()
@@ -56,10 +54,38 @@ def _handle_media_upload(user_id, media_context):
     extension = mime_type.split('/')[-1].replace('jpeg', 'jpg')
     file_name = f"{user_id}_{int(time.time())}.{extension}"
     
-    # 3. Upload to Cloudinary (REPLACES Google Drive call)
-    drive_url = upload_image_to_cloudinary(image_data, file_name) # Call the new function
+    # 3. Upload to Cloudinary 
+    # NOTE: The public_id used by Cloudinary is 'file_name'
+    image_url = upload_image_to_cloudinary(image_data, file_name) 
     
-    return drive_url
+    return image_url
+
+
+# --- NEW: Order Viewing Utility ---
+
+def _view_future_orders(user_id):
+    """
+    Retrieves and formats the list of upcoming orders for the user.
+    """
+    orders = get_future_orders(user_id)
+    
+    if not orders:
+        return "😔 You currently have no upcoming orders with us."
+        
+    response_lines = ["\n🎂 **Your Upcoming Orders** 🎂"]
+    
+    for i, order in enumerate(orders, 1):
+        # Generate a concise summary for each order
+        line = (
+            f"*{i}. Event Date:* {order.get('event_date', 'N/A')}\n"
+            f"   - **Flavor/Size:** {order.get('cake_flavor', 'N/A').title()} ({order.get('cake_size', 'N/A')})\n"
+            f"   - **Theme:** {order.get('cake_theme', 'N/A')}\n"
+            f"   - **Image:** {order.get('image_url', 'N/A')[:40]}...\n"
+        )
+        response_lines.append(line)
+        
+    response_lines.append("\nPlease reply with another option from the main menu.")
+    return "\n".join(response_lines)
 
 
 # --- CORE FUNCTIONS ---
@@ -87,9 +113,8 @@ def _final_save_and_end(user_id):
     final_data = user_states[user_id]['data']
     final_data['user_id'] = user_id 
     
-    calendar_success = False
-
     # 1. Create Calendar Event 
+    # The image URL is now included in the final_data dictionary
     try:
         create_calendar_event(final_data)
         calendar_success = True
@@ -103,8 +128,8 @@ def _final_save_and_end(user_id):
     # 3. Generate closing message
     closing_message = "\n✅ Thank you! Your confirmed order details have been saved, and we will contact you shortly with a quote."
     
-    # Clear state for next conversation
-    user_states[user_id] = {'step': 'COMPLETE', 'data': final_data}
+    # 4. Set state back to MAIN_MENU
+    user_states[user_id] = {'step': 'MAIN_MENU', 'data': {}}
     
     return closing_message
 
@@ -117,13 +142,31 @@ def _get_next_step(user_id, incoming_message, media_context=None):
     # Implement 'restart' keyword
     if incoming_message.lower().strip() == 'restart':
         user_states[user_id] = {'step': 'START', 'data': {}}
-        return 'START', FLOW_MAP['START']['question'] + "\n" + FLOW_MAP['ASK_DATE']['question']
-
+        return 'START', FLOW_MAP['START']['question']
 
     if current_step == 'START':
-        user_states[user_id] = {'step': 'ASK_DATE', 'data': {}}
-        return 'ASK_DATE', FLOW_MAP['START']['question'] + "\n" + FLOW_MAP['ASK_DATE']['question']
+        user_states[user_id] = {'step': 'MAIN_MENU', 'data': {}}
+        return 'MAIN_MENU', FLOW_MAP['START']['question'] + "\n" + FLOW_MAP['MAIN_MENU']['question']
         
+    # --- MAIN MENU HANDLING (NEW) ---
+    if current_step == 'MAIN_MENU':
+        choice = incoming_message.lower().strip()
+        
+        if choice == '1':
+            user_states[user_id]['step'] = 'ASK_DATE'
+            # Start the order creation flow
+            return 'ASK_DATE', FLOW_MAP['ASK_DATE']['question']
+            
+        elif choice == '2':
+            # View orders, then return to the main menu
+            response_text = _view_future_orders(user_id)
+            user_states[user_id]['step'] = 'MAIN_MENU'
+            return 'MAIN_MENU', response_text + "\n\n" + FLOW_MAP['MAIN_MENU']['question']
+            
+        else:
+            return 'MAIN_MENU', "🛑 Invalid choice. Please reply with **1** or **2**."
+
+
     # --- VALIDATION CHECK ---
     is_valid, feedback = validate_input(user_id, current_step, incoming_message, user_states)
 
@@ -139,10 +182,11 @@ def _get_next_step(user_id, incoming_message, media_context=None):
             user_states[user_id]['step'] = 'ASK_FLAVOR'
             return 'ASK_FLAVOR', "Image skipped. " + FLOW_MAP['ASK_FLAVOR']['question']
             
-        drive_url = _handle_media_upload(user_id, media_context)
+        # Attempt upload
+        image_url = _handle_media_upload(user_id, media_context)
         
-        if drive_url and drive_url != 'Upload Failed':
-            user_states[user_id]['data']['image_url'] = drive_url
+        if image_url:
+            user_states[user_id]['data']['image_url'] = image_url
             user_states[user_id]['step'] = 'ASK_FLAVOR' # Proceed to the next step
             # Return the next question
             return 'ASK_FLAVOR', "Thank you! I've saved the image. " + FLOW_MAP['ASK_FLAVOR']['question']
@@ -171,10 +215,10 @@ def _get_next_step(user_id, incoming_message, media_context=None):
 
         next_step = branch.get(key, next_step) 
         
-        # Confirmation denied: send the restart message
-        if next_step == 'START' and current_step == 'ASK_CONFIRMATION':
-            user_states[user_id] = {'step': 'START', 'data': {}}
-            return 'START', "Order canceled. Starting over:\n" + FLOW_MAP['START']['question']
+        # Confirmation denied: send back to main menu
+        if next_step == 'MAIN_MENU' and current_step == 'ASK_CONFIRMATION':
+            user_states[user_id] = {'step': 'MAIN_MENU', 'data': {}}
+            return 'MAIN_MENU', "Order canceled. Returning to main menu:\n" + FLOW_MAP['MAIN_MENU']['question']
 
 
     # --- Dynamic Question Generation (ASK_SIZE) ---
@@ -211,7 +255,7 @@ def _get_next_step(user_id, incoming_message, media_context=None):
         user_states[user_id]['step'] = next_step
         return next_step, FLOW_MAP[next_step]['question']
 
-    return 'COMPLETE', "I'm sorry, I've lost my place. Please type 'restart' to begin over."
+    return 'MAIN_MENU', "I'm sorry, I've lost my place. Returning to main menu:\n" + FLOW_MAP['MAIN_MENU']['question']
 
 
 def get_response(user_id, incoming_message, media_context=None):

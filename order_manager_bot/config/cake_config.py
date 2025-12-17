@@ -28,7 +28,17 @@ FLOW_MAP = {
     'START': {
         'question': 'Welcome to the Precious Place Custom Cake Order Bot! I can help you place a custom cake order. We will walk through the required details step-by-step.\n\nType **Restart** at any time to begin the conversation over.\n',
         'data_key': None,
-        'next': 'ASK_DATE', 
+        'next': 'MAIN_MENU', # <<< CHANGED: Go to the main menu first
+    },
+    'MAIN_MENU': { # <<< NEW STATE: Main choice point
+        'question': 'How can I help you today?\n\n*1.* Create a new custom cake order.\n*2.* View your upcoming orders.',
+        'data_key': None,
+        'next': None, # Handled by custom logic in conversation_handler
+    },
+    'VIEW_ORDERS': { # <<< NEW STATE: For displaying future orders
+        'question': 'Here are your upcoming orders:',
+        'data_key': None,
+        'next': 'MAIN_MENU', # After viewing, return to the main menu
     },
     'ASK_DATE': {
         'question': 'Let\'s start by telling me the date of the event (Please reply with DD/MM/YYYY)',
@@ -39,13 +49,13 @@ FLOW_MAP = {
         'question': 'Do you have a picture of the custom cake you would like? (Yes/No)',
         'data_key': 'has_picture',
         'next_if': {
-            'yes': 'ASK_IMAGE_UPLOAD', # *** CORRECTED FLOW: Redirects to image upload ***
-            'no': 'ASK_FLAVOR',        # Redirects to flavor if no picture
+            'yes': 'ASK_IMAGE_UPLOAD',
+            'no': 'ASK_FLAVOR',
         },
     },
-    'ASK_IMAGE_UPLOAD': { # *** NEW STEP ADDED ***
+    'ASK_IMAGE_UPLOAD': {
         'question': 'Great! Please send the picture now. You can also type **Skip** if you change your mind.',
-        'data_key': 'image_url', # This will store the Google Drive URL
+        'data_key': 'image_url',
         'next': 'ASK_FLAVOR',
     },
     'ASK_FLAVOR': {
@@ -93,7 +103,7 @@ FLOW_MAP = {
         'data_key': None,
         'next_if': {
             'yes': 'SUMMARY',
-            'no': 'START', 
+            'no': 'MAIN_MENU', # <<< CHANGED: Go back to the main menu after confirmation failure
         },
     },
     'SUMMARY': {
@@ -115,5 +125,5 @@ DISPLAY_KEY_MAP = {
     'venue_indoors': 'Venue Indoors?',
     'venue_ac': 'Venue with A/C?',
     'has_picture': 'Picture Sent?',
-    'image_url': 'Reference Image', # *** NEW ENTRY for the Drive URL ***
+    'image_url': 'Reference Image',
 }
