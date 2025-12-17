@@ -14,7 +14,7 @@ from validation.validator import validate_input
 
 # Import the Google service functions (now includes get_future_orders)
 from services.google_services import save_order_data, create_calendar_event, get_future_orders
-from services.cloudy_services import upload_image_to_cloudinary 
+from services.cloudinary_services import upload_image_to_cloudinary 
 
 # --- CONFIGURATION / TOKEN ACCESS ---
 WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
